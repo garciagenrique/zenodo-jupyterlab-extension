@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { PageConfig } from '@jupyterlab/coreutils';
 import { createUseStyles } from 'react-jss';
 import { getEnvVariable, testZenodoConnection } from '../API/API_functions';
 
@@ -92,10 +93,11 @@ const Login: React.FC = () => {
     };
 
     const oauthLogin = useCallback(() => {
-        // Redirect to the Hub managed service; server will decide sandbox via env
-        const base = window.location.origin;
-        // In lab, service is proxied under /services/zenodo-auth/login
-        window.location.href = base + '/services/zenodo-auth/login';
+        // Handlers are registered on the Hub, not the single-user server.
+        // Use hubPrefix (e.g. /hub/) instead of baseUrl (/user/<name>/).
+        const hubPrefix = PageConfig.getOption('hubPrefix') || '/hub/';
+        // Updated path to new handler location /hub/zenodo/login
+        window.location.href = hubPrefix + 'zenodo/login';
     }, []);
 
     const testAPIConnection = async () => {
