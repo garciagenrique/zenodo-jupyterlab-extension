@@ -1,6 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { PageConfig } from '@jupyterlab/coreutils';
 import { createUseStyles } from 'react-jss';
-import { getEnvVariable, setEnvVariable, testZenodoConnection } from '../API/API_functions';
+import { getEnvVariable, testZenodoConnection } from '../API/API_functions';
 
 
 const useStyles = createUseStyles({
@@ -60,92 +61,98 @@ const useStyles = createUseStyles({
 
 const Login: React.FC = () => {
     const classes = useStyles();
-    const [APIKey, setAPIKey] = useState('');
-    const[outputData, setOutputData] = useState<string | null>(null);
     const [connectionStatus, setConnectionStatus] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
-    const [isSandbox, setIsSandbox] = useState(false);
+    const [isSandbox, setIsSandbox] = useState<boolean>(true); // default sandbox true
+    const [envSandboxLoaded, setEnvSandboxLoaded] = useState(false);
 
-    const handleLogin = useCallback(async () => {
-        try {
-            await setEnvVariable('ZENODO_SANDBOX', String(isSandbox));
-            if (APIKey != '') {
-                await setEnvVariable('ZENODO_API_KEY', APIKey);
-                setOutputData("Zenodo Token Successfully Stored in Environment.");
-                testAPIConnection();
-            } else {
-                const storedKey = getEnvVariable('ZENODO_API_KEY');
-                if (storedKey === null) {
-                    setOutputData("No Zenodo Key Stored. Please Enter A Key.");
-                } else {
-                    setOutputData("Zenodo Key still stored.");
-                    testAPIConnection();
+    // Load sandbox flag from server env (if present) once
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const env = await getEnvVariable('ZENODO_SANDBOX');
+                if (!cancelled && env && typeof env === 'object' && 'ZENODO_SANDBOX' in env) {
+                    const val = String((env as any)['ZENODO_SANDBOX']).toLowerCase();
+                    setIsSandbox(val === 'true' || val === '1');
                 }
+            } catch (e) {
+                // ignore
+            } finally {
+                if (!cancelled) setEnvSandboxLoaded(true);
             }
-        } catch (error) {
-            console.error(error);
-        }
-    }, [APIKey, isSandbox]);
+        })();
+        return () => { cancelled = true; };
+    }, []);
 
     const handleCheckboxChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        setIsSandbox(event.target.checked);
+        const checked = event.target.checked;
+        setIsSandbox(checked);
+        // Persist preference locally for user experience (does not flip server env automatically)
+        try { window.localStorage.setItem('zenodo_sandbox_pref', checked ? 'true' : 'false'); } catch { /* ignore */ }
     };
+
+    const oauthLogin = useCallback(() => {
+        // Handlers are registered on the Hub, not the single-user server.
+        // Use hubPrefix (e.g. /hub/) instead of baseUrl (/user/<name>/).
+        const hubPrefix = PageConfig.getOption('hubPrefix') || '/hub/';
+        // Updated path to new handler location /hub/zenodo/login
+        window.location.href = hubPrefix + 'zenodo/login';
+    }, []);
 
     const testAPIConnection = async () => {
         setIsLoading(true);
         try {
-            var response = await testZenodoConnection();
-            if (Number(response['status']) == 200) {
-                setConnectionStatus("API Connection Successful")
+            const response: any = await testZenodoConnection();
+            if (response && Number(response['status']) === 200) {
+                setConnectionStatus('Zenodo API reachable');
             } else {
-                setConnectionStatus("Invalid Zenodo API Key")
+                setConnectionStatus('Zenodo API not reachable \n (login may be required)');
             }
-        } catch(error) {
-            console.error(error);
+        } catch (e) {
+            setConnectionStatus('Zenodo API check failed');
         } finally {
             setIsLoading(false);
         }
-    }
+    };
+
+    useEffect(() => {
+        // After potential redirect back, try connection test
+        testAPIConnection();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     return (
         <div className={classes.root}>
             <div className={classes.loginContainer}>
-            <h2>Login</h2>
-            <div className={classes.formGroup}>
-                    <input className={classes.input} type="text" id="APIKey" name="APIKey" placeholder="API Key" value={APIKey} onChange={(e) => setAPIKey(e.target.value)} required />
-        </div>
-        <div className={classes.formGroup}>
-            <div className={classes.checkboxContainer}>
-                <label className={classes.checkboxLabel}>
-                    <input
-                        type="checkbox"
-                        checked={isSandbox}
-                        onChange={handleCheckboxChange}
-                        className={classes.checkboxInput}
-                    />
-                    Use Sandbox
-                </label>
-            </div>
-            <button className={classes.button} type="submit" onClick={handleLogin}>Login</button>
-            {outputData ? (
-                <div>
-                    <h2>Processed Output:</h2>
-                    <p>{outputData}</p>
+                <h2>Zenodo Login</h2>
+                <div className={classes.formGroup}>
+                    <div className={classes.checkboxContainer}>
+                        <label className={classes.checkboxLabel}>
+                            <input
+                                type="checkbox"
+                                checked={isSandbox}
+                                onChange={handleCheckboxChange}
+                                className={classes.checkboxInput}
+                            />
+                            Use Sandbox
+                        </label>
+                    </div>
+                    <button className={classes.button} onClick={oauthLogin}>Login with Zenodo</button>
                 </div>
+                {isLoading ? (
+                    <p>Checking connection...</p>
+                ) : connectionStatus ? (
+                    <div>
+                        <h3>Connection Status</h3>
+                        <p>{connectionStatus}</p>
+                    </div>
                 ) : (
-                <p>No data processed yet</p>
-            )}
-            {isLoading ? (
-                        <p>Loading...</p>
-                    ) : connectionStatus ? (
-                        <div>
-                            <h2>Zenodo Connection Status:</h2>
-                            <p>{connectionStatus}</p>
-                        </div>
-                    ) : null}
+                    <p>Ready to initiate OAuth login.</p>
+                )}
+                {!envSandboxLoaded && <p>Loading environment...</p>}
+            </div>
         </div>
-    </div>
-</div>
     );
 };
 
