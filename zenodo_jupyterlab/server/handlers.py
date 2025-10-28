@@ -184,6 +184,8 @@ class ZenodoOAuthLoginHandler(JupyterHandler):
             os.environ['ZENODO_SANDBOX'] = 'true' if 'sandbox.zenodo.org' in authorize_url else 'false'
 
         url = authorize_url + '?' + urllib.parse.urlencode(params)
+        self.log.info(f"OAuth redirect URL: {url}")
+        self.log.info(f"OAuth params: client_id={client_id[:10]}..., redirect_uri={redirect_uri}, scope={scopes}")
         self.redirect(url)
 
 
@@ -243,15 +245,20 @@ class ZenodoOAuthCallbackHandler(JupyterHandler):
         })
         headers = {'Content-Type': 'application/x-www-form-urlencoded'}
 
+        self.log.info(f"Token exchange: URL={token_url}, redirect_uri={redirect_uri}")
+
         http = AsyncHTTPClient()
         try:
             response = await http.fetch(HTTPRequest(url=token_url, method='POST', headers=headers, body=body))
             data = json.loads(response.body.decode('utf-8'))
+            self.log.info(f"Token exchange successful")
         except HTTPClientError as e:
+            self.log.error(f"Token exchange HTTPClientError: {e}, response: {e.response.body if e.response else 'no response'}")
             self.set_status(502)
             self.finish({'error': 'Token exchange failed', 'details': str(e)})
             return
         except Exception as e:
+            self.log.error(f"Token exchange Exception: {e}")
             self.set_status(500)
             self.finish({'error': 'Unexpected error during token exchange', 'details': str(e)})
             return
@@ -265,14 +272,12 @@ class ZenodoOAuthCallbackHandler(JupyterHandler):
         # Store token for server-side use by existing endpoints
         os.environ['ZENODO_API_KEY'] = access_token
 
-        # Optionally persist other metadata
-        result = {
-            'status': 'linked',
-            'token_type': data.get('token_type'),
-            'scope': data.get('scope'),
-            'expires_in': data.get('expires_in'),
-        }
-        self.finish(result)
+        self.log.info(f"OAuth token stored successfully, redirecting to JupyterLab")
+
+        # Redirect back to JupyterLab interface
+        # Works for both standalone JupyterLab (/lab) and JupyterHub (/user/<name>/lab)
+        redirect_url = url_path_join(self.base_url, 'lab')
+        self.redirect(redirect_url)
 
 
 class ZenodoOAuthLogoutHandler(JupyterHandler):

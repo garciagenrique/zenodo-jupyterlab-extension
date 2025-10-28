@@ -93,11 +93,26 @@ const Login: React.FC = () => {
     };
 
     const oauthLogin = useCallback(() => {
-        // Handlers are registered on the Hub, not the single-user server.
-        // Use hubPrefix (e.g. /hub/) instead of baseUrl (/user/<name>/).
-        const hubPrefix = PageConfig.getOption('hubPrefix') || '/hub/';
-        // Updated path to new handler location /hub/zenodo/login
-        window.location.href = hubPrefix + 'zenodo/login';
+        // Detect if running via JupyterHub or standalone JupyterLab
+        const hubPrefix = PageConfig.getOption('hubPrefix') || '';
+        const baseUrl = PageConfig.getOption('baseUrl') || '/';
+
+        console.log('OAuth Login Debug:', { hubPrefix, baseUrl });
+
+        // If hubPrefix exists and is not just '/', we're in a Hub context
+        const isHub = hubPrefix && hubPrefix !== '/' && hubPrefix !== '';
+
+        console.log('isHub:', isHub);
+
+        if (isHub) {
+            // JupyterHub: handlers are registered on the Hub
+            console.log('Redirecting to Hub path:', hubPrefix + 'zenodo/login');
+            window.location.href = hubPrefix + 'zenodo/login';
+        } else {
+            // Standalone JupyterLab: handlers are registered on the single-user server
+            console.log('Redirecting to standalone path:', baseUrl + 'zenodo-jupyterlab/oauth/login');
+            window.location.href = baseUrl + 'zenodo-jupyterlab/oauth/login';
+        }
     }, []);
 
     const testAPIConnection = async () => {
